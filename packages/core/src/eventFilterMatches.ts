@@ -74,7 +74,10 @@ export function eventFilterMatches(payload: any, filter: EventFilter): boolean {
   return true;
 }
 
-type ContentFilters = Exclude<EventFilter[string], EventFilter | string[] | number[] | boolean[]>;
+type ContentFilters = Exclude<
+  EventFilter[string],
+  EventFilter | string[] | number[] | boolean[] | undefined
+>;
 
 function contentFiltersMatches(actualValue: any, contentFilters: ContentFilters): boolean {
   for (const contentFilter of contentFilters) {
