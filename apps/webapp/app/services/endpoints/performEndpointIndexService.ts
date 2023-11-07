@@ -128,7 +128,7 @@ export class PerformEndpointIndexService {
       });
     }
 
-    const { jobs, sources, dynamicTriggers, dynamicSchedules, httpEndpoints } = bodyResult.data;
+    const { jobs, queues, sources, dynamicTriggers, dynamicSchedules, httpEndpoints } = bodyResult.data;
     const { "trigger-version": triggerVersion, "trigger-sdk-version": triggerSdkVersion } =
       headerResult.data;
     const { endpoint } = endpointIndex;
@@ -150,6 +150,7 @@ export class PerformEndpointIndexService {
 
     const indexStats: IndexEndpointStats = {
       jobs: 0,
+      queues: 0,
       sources: 0,
       dynamicTriggers: 0,
       dynamicSchedules: 0,
@@ -248,6 +249,139 @@ export class PerformEndpointIndexService {
         if (disabledJob) {
           indexStats.disabledJobs++;
         }
+      }
+    }
+
+    const missingQueues = await this.#prismaClient.queue.findMany({
+      where: {
+        projectId: endpoint.projectId,
+        slug: { notIn: queues.map((queue) => queue.id) },
+      },
+    });
+
+    if (missingQueues.length > 0) {
+      const missingQueueIds = missingQueues.map((queue) => queue.id);
+
+      logger.debug("Disabling missing queues", {
+        endpointId: endpoint.id,
+        missingQueueIds,
+      });
+
+      try {
+        await this.#prismaClient.queue.updateMany({
+          where: {
+            id: { in: missingQueueIds },
+          },
+          data: {
+            enabled: false,
+          },
+        });
+      } catch (error) {
+        logger.error("Failed to disable queues", {
+          endpointId: endpoint.id,
+          missingQueueIds,
+          error,
+        });
+      }
+    }
+
+    for (const queue of queues) {
+      try {
+        // TODO: should probably do this in a tx
+        const upsertedQueue = await this.#prismaClient.queue.upsert({
+          where: {
+            projectId_slug: {
+              projectId: endpoint.projectId,
+              slug: queue.id,
+            },
+          },
+          create: {
+            projectId: endpoint.projectId,
+            slug: queue.id,
+            organizationId: endpoint.environment.organizationId,
+            title: queue.name,
+            icon: queue.icon,
+            version: queue.version,
+            enabled: queue.enabled,
+          },
+          update: {
+            title: queue.name,
+            icon: queue.icon,
+            version: queue.version,
+            enabled: queue.enabled,
+          },
+        });
+
+        // delete missing steps
+        const missingSteps = await this.#prismaClient.queuePipelineStep.findMany({
+          where: {
+            key: { notIn: queue.pipeline.map((step) => step.key) },
+            queueId: upsertedQueue.id,
+          },
+        });
+
+        if (missingSteps.length > 0) {
+          const missingStepIds = missingSteps.map((step) => step.id);
+
+          logger.debug("Disabling missing steps", {
+            endpointId: endpoint.id,
+            missingStepIds,
+          });
+
+          try {
+            await this.#prismaClient.queuePipelineStep.deleteMany({
+              where: {
+                id: { in: missingStepIds },
+              },
+            });
+          } catch (error) {
+            logger.error("Failed to disable steps", {
+              endpointId: endpoint.id,
+              missingStepIds,
+              error,
+            });
+
+            throw error;
+          }
+        }
+
+        for (const step of queue.pipeline) {
+          try {
+            await this.#prismaClient.queuePipelineStep.upsert({
+              where: {
+                key_queueId: {
+                  key: step.key,
+                  queueId: upsertedQueue.id,
+                },
+              },
+              create: {
+                key: step.key,
+                queueId: upsertedQueue.id,
+                type: step.type,
+                config: step.config,
+              },
+              update: {
+                type: step.type,
+                config: step.config,
+              },
+            });
+          } catch (error) {
+            logger.error("Failed to register pipeline step", {
+              endpointId: endpoint.id,
+              queue,
+              step,
+              error,
+            });
+          }
+        }
+
+        indexStats.queues++;
+      } catch (error) {
+        logger.error("Failed to register queue", {
+          endpointId: endpoint.id,
+          queue,
+          error,
+        });
       }
     }
 

@@ -41,6 +41,9 @@ export class DeliverEventService {
             enabled: true,
             manual: false,
           },
+          include: {
+            pipeline: true,
+          },
         });
 
         logger.debug("Found possible event dispatchers", {
@@ -66,16 +69,28 @@ export class DeliverEventService {
         });
 
         await Promise.all(
-          matchingEventDispatchers.map((eventDispatcher) =>
-            workerQueue.enqueue(
+          matchingEventDispatchers.map((eventDispatcher) => {
+            if (eventDispatcher.pipeline && eventRecord.shouldProcessDispatcherPipeline) {
+              return workerQueue.enqueue(
+                "createPipeline",
+                {
+                  type: "DISPATCHER",
+                  dispatcherId: eventDispatcher.id,
+                  eventRecordId: eventRecord.id,
+                },
+                { tx }
+              );
+            }
+
+            return workerQueue.enqueue(
               "events.invokeDispatcher",
               {
                 id: eventDispatcher.id,
                 eventRecordId: eventRecord.id,
               },
               { tx }
-            )
-          )
+            );
+          })
         );
 
         await tx.eventRecord.update({

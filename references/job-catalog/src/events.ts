@@ -153,4 +153,50 @@ client.defineJob({
   },
 });
 
+client.defineJob({
+  id: "event-with-pipeline",
+  name: "Event with Pipeline",
+  version: "1.0.0",
+  enabled: true,
+  trigger: eventTrigger({
+    name: "event.example",
+    schema: z.object({
+      action: z.string(),
+      resource: z.string(),
+      num: z.number(),
+      maybeNum: z.union([z.number(), z.string()]),
+    }),
+    filter: {
+      action: ["abc"],
+    },
+    steps: [
+      {
+        type: "FILTER",
+        key: "test123",
+        config: {
+          action: ["foo"],
+        },
+      },
+    ],
+  }),
+  preProcess: [
+    {
+      type: "FILTER",
+      key: "test123",
+      config: {
+        action: ["test"],
+        resource: [{ $endsWith: "abc" }],
+        // someField: [
+        //   {
+        //     $between: [2, 5],
+        //   },
+        // ],
+      },
+    },
+  ],
+  run: async (payload, io, ctx) => {
+    return payload;
+  },
+});
+
 createExpressServer(client);

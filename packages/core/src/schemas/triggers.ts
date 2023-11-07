@@ -2,6 +2,7 @@ import { z } from "zod";
 import { EventFilterSchema, EventRuleSchema } from "./eventFilter";
 import { DisplayPropertySchema } from "./properties";
 import { ScheduleMetadataSchema } from "./schedules";
+import { PipelineStepSchema } from "./pipeline";
 
 export const EventExampleSchema = z.object({
   id: z.string(),
@@ -44,6 +45,7 @@ export const StaticTriggerMetadataSchema = z.object({
   rule: EventRuleSchema,
   link: z.string().optional(),
   help: TriggerHelpSchema.optional(),
+  pipeline: z.array(PipelineStepSchema).optional(),
 });
 
 export const InvokeTriggerMetadataSchema = z.object({

@@ -63,9 +63,13 @@ export class CreateRunService {
           preprocess: version.preprocessRuns,
           jobId: job.id,
           versionId: version.id,
+          // TODO: add refs to follow pipeline chain (queue + dispatcher)
+          // this will become eventIds soon
           eventId: eventId,
           environmentId: environment.id,
           organizationId: environment.organizationId,
+          // TODO: with the new schema, this should be the final pipeline output
+          // payload: eventRecord.payload,
           projectId: environment.projectId,
           endpointId: endpoint.id,
           queueId: jobQueue.id,

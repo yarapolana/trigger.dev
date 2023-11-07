@@ -1,5 +1,9 @@
 import { DeliverEmailSchema } from "@/../../packages/emails/src";
-import { ScheduledPayloadSchema, addMissingVersionField } from "@trigger.dev/core";
+import {
+  ScheduledPayloadSchema,
+  addMissingVersionField,
+  assertExhaustive,
+} from "@trigger.dev/core";
 import { z } from "zod";
 import { prisma } from "~/db.server";
 import { env } from "~/env.server";
@@ -24,6 +28,9 @@ import { ProbeEndpointService } from "./endpoints/probeEndpoint.server";
 import { DeliverRunSubscriptionService } from "./runs/deliverRunSubscription.server";
 import { DeliverRunSubscriptionsService } from "./runs/deliverRunSubscriptions.server";
 import { ResumeTaskService } from "./tasks/resumeTask.server";
+import { RunDispatcherPipeline } from "./events/runDispatcherPipeline.server";
+import { RunPipeline } from "./events/runPipeline";
+import { CreatePipelineService } from "./events/createPipeline.server";
 
 const workerCatalog = {
   indexEndpoint: z.object({
@@ -79,6 +86,25 @@ const workerCatalog = {
     id: z.string(),
   }),
   probeEndpoint: z.object({
+    id: z.string(),
+  }),
+  createPipeline: z.discriminatedUnion("type", [
+    z.object({
+      type: z.literal("DISPATCHER"),
+      dispatcherId: z.string(),
+      eventRecordId: z.string(),
+    }),
+    z.object({
+      type: z.literal("QUEUE"),
+      queueId: z.string(),
+      eventRecordId: z.string(),
+    }),
+  ]),
+  runDispatcherPipeline: z.object({
+    dispatcherId: z.string(),
+    eventRecordId: z.string(),
+  }),
+  runPipeline: z.object({
     id: z.string(),
   }),
   simulate: z.object({
@@ -282,6 +308,43 @@ function getWorkerQueue() {
         maxAttempts: 3,
         handler: async (payload, job) => {
           const service = new ProcessCallbackTimeoutService();
+
+          await service.call(payload.id);
+        },
+      },
+      createPipeline: {
+        priority: 0, // smaller number = higher priority
+        maxAttempts: 3,
+        queueName: (payload) => `pipeline:${payload.eventRecordId}`, // use pipeline queue so runs are created sequentially
+        handler: async (payload, job) => {
+          const service = new CreatePipelineService();
+
+          switch (payload.type) {
+            case "DISPATCHER":
+              await service.call(payload.type, payload.eventRecordId, payload.dispatcherId);
+              break;
+            case "QUEUE":
+              await service.call(payload.type, payload.eventRecordId, payload.queueId);
+              break;
+          }
+        },
+      },
+      runDispatcherPipeline: {
+        priority: 0, // smaller number = higher priority
+        maxAttempts: 3,
+        queueName: (payload) => `dispatcher:${payload.dispatcherId}`, // use dispatcher queue so runs are created sequentially
+        handler: async (payload, job) => {
+          const service = new RunDispatcherPipeline();
+
+          await service.call(payload.dispatcherId, payload.eventRecordId);
+        },
+      },
+      runPipeline: {
+        priority: 0, // smaller number = higher priority
+        maxAttempts: 3,
+        queueName: (payload) => `pipeline:${payload.id}`, // use pipeline queue so steps are processed sequentially
+        handler: async (payload, job) => {
+          const service = new RunPipeline();
 
           await service.call(payload.id);
         },

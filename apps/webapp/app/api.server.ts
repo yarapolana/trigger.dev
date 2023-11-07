@@ -5,6 +5,7 @@ export function eventRecordToApiJson(eventRecord: EventRecord): ApiEventLog {
   return {
     id: eventRecord.eventId,
     name: eventRecord.name,
+    queueId: eventRecord.queueId,
     payload: eventRecord.payload as any,
     context: eventRecord.context as any,
     timestamp: eventRecord.timestamp,

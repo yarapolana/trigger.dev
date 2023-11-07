@@ -18,6 +18,7 @@ import type {
 import { slugifyId } from "./utils";
 import { runLocalStorage } from "./runLocalStorage";
 import { Prettify } from "@trigger.dev/core";
+import { FilterStep } from "./triggers/eventTrigger";
 
 export type JobOptions<
   TTrigger extends Trigger<EventSpecification<any>>,
@@ -63,6 +64,10 @@ export type JobOptions<
   queue?: QueueOptions | string;
   /** The `enabled` property is used to enable or disable the Job. If you disable a Job, it will not run. */
   enabled?: boolean;
+
+  /** pipeline steps before event is dispatched */
+  preProcess?: FilterStep<TriggerEventType<TTrigger>>[];
+
   /** This function gets called automatically when a Run is Triggered.
    * This is where you put the code you want to run for a Job. You can use normal code in here and you can also use Tasks. You can return a value from this function and it will be sent back to the Trigger API.
    * @param payload The payload of the event

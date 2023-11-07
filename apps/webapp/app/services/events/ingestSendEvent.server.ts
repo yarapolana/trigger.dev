@@ -3,18 +3,20 @@ import { $transaction, PrismaClientOrTransaction, PrismaErrorSchema, prisma } fr
 import type { AuthenticatedEnvironment } from "~/services/apiAuth.server";
 import { workerQueue } from "~/services/worker.server";
 import { logger } from "../logger.server";
-import { EventRecord, ExternalAccount } from "@trigger.dev/database";
+import { EventRecord, ExternalAccount, Prisma, Queue } from "@trigger.dev/database";
 
 type UpdateEventInput = {
   tx: PrismaClientOrTransaction;
   existingEventLog: EventRecord;
   reqEvent: RawEvent;
+  queueId: EventRecord["queueId"];
   deliverAt?: Date;
 };
 
 type CreateEventInput = {
   tx: PrismaClientOrTransaction;
   event: RawEvent;
+  queueId: EventRecord["queueId"];
   environment: AuthenticatedEnvironment;
   deliverAt?: Date;
   sourceContext?: { id: string; metadata?: any };
@@ -87,11 +89,27 @@ export class IngestSendEvent {
           },
         });
 
+        let queueId: EventRecord["queueId"] = null;
+
+        if (options?.queueId) {
+          const queue = await tx.queue.findUniqueOrThrow({
+            where: {
+              projectId_slug: {
+                projectId: environment.projectId,
+                slug: options.queueId,
+              },
+            },
+          });
+
+          queueId = queue.id;
+        }
+
         const eventLog = await (existingEventLog
-          ? this.updateEvent({ tx, existingEventLog, reqEvent: event, deliverAt })
+          ? this.updateEvent({ tx, existingEventLog, reqEvent: event, queueId, deliverAt })
           : this.createEvent({
               tx,
               event,
+              queueId,
               environment,
               deliverAt,
               sourceContext,
@@ -120,6 +138,7 @@ export class IngestSendEvent {
   private async createEvent({
     tx,
     event,
+    queueId,
     environment,
     deliverAt,
     sourceContext,
@@ -132,6 +151,7 @@ export class IngestSendEvent {
         projectId: environment.projectId,
         environmentId: environment.id,
         eventId: event.id,
+        queueId,
         name: event.name,
         timestamp: event.timestamp ?? new Date(),
         payload: event.payload ?? {},
@@ -144,6 +164,13 @@ export class IngestSendEvent {
         httpEndpointId: eventSource?.httpEndpointId,
         httpEndpointEnvironmentId: eventSource?.httpEndpointEnvironmentId,
       },
+      include: {
+        queue: {
+          include: {
+            pipeline: true,
+          },
+        },
+      },
     });
 
     await this.enqueueWorkerEvent(tx, eventLog);
@@ -151,7 +178,13 @@ export class IngestSendEvent {
     return eventLog;
   }
 
-  private async updateEvent({ tx, existingEventLog, reqEvent, deliverAt }: UpdateEventInput) {
+  private async updateEvent({
+    tx,
+    existingEventLog,
+    reqEvent,
+    queueId,
+    deliverAt,
+  }: UpdateEventInput) {
     if (!this.shouldUpdateEvent(existingEventLog)) {
       logger.debug(`not updating event for event id: ${existingEventLog.eventId}`);
       return existingEventLog;
@@ -168,7 +201,15 @@ export class IngestSendEvent {
         payload: reqEvent.payload ?? existingEventLog.payload,
         payloadType: reqEvent.payloadType,
         context: reqEvent.context ?? existingEventLog.context,
+        queueId,
         deliverAt: deliverAt ?? new Date(),
+      },
+      include: {
+        queue: {
+          include: {
+            pipeline: true,
+          },
+        },
       },
     });
 
@@ -183,10 +224,23 @@ export class IngestSendEvent {
     return eventLog.deliverAt >= thresholdTime;
   }
 
-  private async enqueueWorkerEvent(tx: PrismaClientOrTransaction, eventLog: EventRecord) {
+  private async enqueueWorkerEvent(
+    tx: PrismaClientOrTransaction,
+    eventLog: EventRecordWithPipeline
+  ) {
+    const hasQueuePipeline = !!eventLog.queue?.pipeline.length;
+
+    if (hasQueuePipeline && eventLog.queue) {
+      return workerQueue.enqueue("createPipeline", {
+        type: "QUEUE",
+        queueId: eventLog.queue.id,
+        eventRecordId: eventLog.id,
+      });
+    }
+
     if (this.deliverEvents) {
       // Produce a message to the event bus
-      await workerQueue.enqueue(
+      return workerQueue.enqueue(
         "deliverEvent",
         {
           id: eventLog.id,
@@ -196,3 +250,13 @@ export class IngestSendEvent {
     }
   }
 }
+
+type EventRecordWithPipeline = Prisma.EventRecordGetPayload<{
+  include: {
+    queue: {
+      include: {
+        pipeline: true;
+      };
+    };
+  };
+}>;

@@ -52,6 +52,7 @@ import { TriggerIntegration } from "./integrations";
 import { IO, IOStats } from "./io";
 import { createIOWithIntegrations } from "./ioWithIntegrations";
 import { Job, JobOptions } from "./job";
+import { Queue, CreateQueueOptions, createQueue } from "./queue";
 import { runLocalStorage } from "./runLocalStorage";
 import { DynamicTrigger, DynamicTriggerOptions } from "./triggers/dynamic";
 import { EventTrigger } from "./triggers/eventTrigger";
@@ -109,6 +110,7 @@ export type TriggerAuthResolver = (
 export class TriggerClient {
   #options: TriggerClientOptions;
   #registeredJobs: Record<string, Job<Trigger<EventSpecification<any>>, any>> = {};
+  #registeredQueues: Record<string, Queue<EventSpecification<any>>> = {};
   #registeredSources: Record<string, SourceMetadataV2> = {};
   #registeredHttpSourceHandlers: Record<
     string,
@@ -251,6 +253,7 @@ export class TriggerClient {
       case "INDEX_ENDPOINT": {
         const body: IndexEndpointResponse = {
           jobs: this.#buildJobsIndex(),
+          queues: this.#buildQueuesIndex(),
           sources: Object.values(this.#registeredSources),
           dynamicTriggers: Object.values(this.#registeredDynamicTriggers).map((trigger) => ({
             id: trigger.id,
@@ -578,6 +581,7 @@ export class TriggerClient {
    */
   defineHttpEndpoint(options: EndpointOptions) {
     const existingHttpEndpoint = this.#registeredHttpEndpoints[options.id];
+
     if (existingHttpEndpoint) {
       console.warn(
         yellow(
@@ -589,6 +593,25 @@ export class TriggerClient {
     const endpoint = httpEndpoint(options);
     this.#registeredHttpEndpoints[endpoint.id] = endpoint;
     return endpoint;
+  }
+
+  // TODO: add JSDoc
+  defineQueue<TEvent extends any = any>(options: CreateQueueOptions<TEvent>) {
+    const existingRegisteredQueue = this.#registeredQueues[options.id];
+
+    if (existingRegisteredQueue) {
+      console.warn(
+        yellow(
+          `[@trigger.dev/sdk] Warning: The Queue "${existingRegisteredQueue.id}" you're attempting to define has already been defined. Please assign a different ID to the Queue.`
+        )
+      );
+    }
+
+    const queue = createQueue(this, options);
+
+    this.#registeredQueues[queue.id] = queue;
+
+    return queue;
   }
 
   attach(job: Job<Trigger<any>, any>): void {
@@ -1424,6 +1447,10 @@ export class TriggerClient {
       metadata: integration.metadata,
       authSource,
     };
+  }
+
+  #buildQueuesIndex(): IndexEndpointResponse["queues"] {
+    return Object.values(this.#registeredQueues).map((queue) => queue.toJSON());
   }
 
   #logIOStats(stats: IOStats) {

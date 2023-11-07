@@ -3,6 +3,7 @@ import {
   JobMetadata,
   SCHEDULED_EVENT,
   TriggerMetadata,
+  assertExhaustive,
 } from "@trigger.dev/core";
 import type { Endpoint, Integration, Job, JobIntegration, JobVersion } from "@trigger.dev/database";
 import { DEFAULT_MAX_CONCURRENT_RUNS } from "~/consts";
@@ -298,7 +299,88 @@ export class RegisterJobService {
       },
     });
 
-    await this.#upsertEventDispatcher(metadata.trigger, job, jobVersion, environment);
+    const eventDispatcher = await this.#upsertEventDispatcher(
+      metadata.trigger,
+      job,
+      jobVersion,
+      environment
+    );
+
+    const pipelineSteps = new Set<string>();
+
+    if (metadata.trigger.type === "static" && eventDispatcher) {
+      const {pipeline} = metadata.trigger
+
+      if (pipeline) {
+        // delete missing steps
+        // TODO: skip findMany?
+        const missingSteps = await this.#prismaClient.eventDispatcherPipelineStep.findMany({
+          where: {
+            dispatcherId: eventDispatcher.id,
+            key: { notIn: pipeline.map((step) => step.key) },
+          },
+        });
+
+        if (missingSteps.length > 0) {
+          const missingStepIds = missingSteps.map((step) => step.id);
+
+          logger.debug("Deleting missing steps", {
+            eventDispatcherId: eventDispatcher.id,
+            missingStepIds,
+          });
+
+          try {
+            await this.#prismaClient.eventDispatcherPipelineStep.deleteMany({
+              where: {
+                id: { in: missingStepIds },
+              },
+            });
+          } catch (error) {
+            logger.error("Failed to delete steps", {
+              eventDispatcherId: eventDispatcher.id,
+              missingStepIds,
+              error,
+            });
+
+            throw error;
+          }
+        }
+
+        // upsert active steps
+        for (const step of pipeline) {
+          console.log(eventDispatcher.id, step.key)
+          const pipelineStep = await this.#prismaClient.eventDispatcherPipelineStep.upsert({
+            where: {
+              key_dispatcherId: {
+                key: step.key,
+                dispatcherId: eventDispatcher.id,
+              }
+            },
+            create: {
+              key: step.key,
+              dispatcherId: eventDispatcher.id,
+              type: step.type,
+              config: step.config,
+            },
+            update: {
+              type: step.type,
+              config: step.config,
+            },
+          });
+
+          pipelineSteps.add(pipelineStep.id);
+        }
+      } else {
+        // delete all steps if pipeline is empty
+        await this.#prismaClient.eventDispatcherPipelineStep.deleteMany({
+          where: {
+            dispatcherId: eventDispatcher.id,
+          },
+        });
+      }
+    }
+
+    console.log({ pipelineSteps, eventDispatcher: eventDispatcher!.id });
 
     return jobVersion;
   }
@@ -311,7 +393,7 @@ export class RegisterJobService {
   ) {
     switch (trigger.type) {
       case "static": {
-        await this.#prismaClient.eventDispatcher.upsert({
+        const eventDispatcher = await this.#prismaClient.eventDispatcher.upsert({
           where: {
             dispatchableId_environmentId: {
               dispatchableId: job.id,
@@ -359,7 +441,7 @@ export class RegisterJobService {
           });
         }
 
-        break;
+        return eventDispatcher;
       }
       case "scheduled": {
         const eventDispatcher = await this.#prismaClient.eventDispatcher.upsert({
@@ -401,7 +483,7 @@ export class RegisterJobService {
           organizationId: job.organizationId,
         });
 
-        break;
+        return eventDispatcher;
       }
     }
   }
@@ -637,8 +719,4 @@ export class RegisterJobService {
       },
     });
   }
-}
-
-function assertExhaustive(x: never): never {
-  throw new Error("Unexpected object: " + x);
 }

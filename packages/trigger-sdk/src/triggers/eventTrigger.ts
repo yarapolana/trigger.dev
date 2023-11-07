@@ -4,12 +4,14 @@ import { TriggerClient } from "../triggerClient";
 import { EventSpecification, EventSpecificationExample, SchemaParser, Trigger } from "../types";
 import { formatSchemaErrors } from "../utils/formatSchemaErrors";
 import { ParsedPayloadSchemaError } from "../errors";
+import { PipelineStep } from "@trigger.dev/core/schemas/pipeline";
 
 type EventTriggerOptions<TEventSpecification extends EventSpecification<any>> = {
   event: TEventSpecification;
   name?: string | string[];
   source?: string;
   filter?: EventFilter;
+  pipeline?: PipelineStep[];
 };
 
 export class EventTrigger<TEventSpecification extends EventSpecification<any>>
@@ -30,6 +32,7 @@ export class EventTrigger<TEventSpecification extends EventSpecification<any>>
         source: this.#options.source ?? "trigger.dev",
         payload: deepMergeFilters(this.#options.filter ?? {}, this.#options.event.filter ?? {}),
       },
+      pipeline: this.#options.pipeline,
     };
   }
 
@@ -77,9 +80,16 @@ type TriggerOptions<TEvent> = {
    * }
    * ```
    */
-  filter?: EventFilter;
+  filter?: EventFilter<TEvent>;
+  steps?: FilterStep<TEvent>[];
 
   examples?: EventSpecificationExample[];
+};
+
+export type FilterStep<TEvent> = {
+  key: string;
+  type: "FILTER";
+  config: EventFilter<TEvent>;
 };
 
 /** `eventTrigger()` is set as a [Job's trigger](https://trigger.dev/docs/sdk/job) to subscribe to an event a Job from [a sent event](https://trigger.dev/docs/sdk/triggerclient/instancemethods/sendevent)
@@ -91,6 +101,7 @@ export function eventTrigger<TEvent extends any = any>(
   return new EventTrigger({
     name: options.name,
     filter: options.filter,
+    pipeline: options.steps,
     event: {
       name: options.name,
       title: "Event",

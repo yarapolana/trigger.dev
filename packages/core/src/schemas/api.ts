@@ -17,6 +17,7 @@ import { CachedTaskSchema, ServerTaskSchema, TaskSchema } from "./tasks";
 import { EventSpecificationSchema, TriggerMetadataSchema } from "./triggers";
 import { RunStatusSchema } from "./runs";
 import { JobRunStatusRecordSchema } from "./statuses";
+import { PipelineStepSchema } from "./pipeline";
 import { RequestFilterSchema } from "./requestFilter";
 
 export const UpdateTriggerSourceBodyV1Schema = z.object({
@@ -234,6 +235,18 @@ export const JobMetadataSchema = z.object({
 
 export type JobMetadata = z.infer<typeof JobMetadataSchema>;
 
+export const QueueMetadataSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  icon: z.string(),
+  version: z.string(),
+  enabled: z.boolean(),
+  event: EventSpecificationSchema,
+  pipeline: z.array(PipelineStepSchema),
+});
+
+export type QueueMetadata = z.infer<typeof QueueMetadataSchema>;
+
 const SourceMetadataV1Schema = z.object({
   version: z.literal("1"),
   channel: z.enum(["HTTP", "SQS", "SMTP"]),
@@ -305,6 +318,7 @@ export type HttpEndpointMetadata = z.infer<typeof HttpEndpointMetadataSchema>;
 
 export const IndexEndpointResponseSchema = z.object({
   jobs: z.array(JobMetadataSchema),
+  queues: z.array(QueueMetadataSchema),
   sources: z.array(SourceMetadataSchema),
   dynamicTriggers: z.array(DynamicTriggerEndpointMetadataSchema),
   dynamicSchedules: z.array(RegisterDynamicSchedulePayloadSchema),
@@ -322,6 +336,7 @@ export type EndpointIndexError = z.infer<typeof EndpointIndexErrorSchema>;
 
 const IndexEndpointStatsSchema = z.object({
   jobs: z.number(),
+  queues: z.number(),
   sources: z.number(),
   dynamicTriggers: z.number(),
   dynamicSchedules: z.number(),
@@ -407,6 +422,8 @@ export const ApiEventLogSchema = z.object({
   id: z.string(),
   /** The `name` of the event that was sent. */
   name: z.string(),
+  /** The `queueId` of the event that was sent. */
+  queueId: z.string().nullable(),
   /** The `payload` of the event that was sent */
   payload: DeserializedJsonSchema,
   /** The `context` of the event that was sent. Is `undefined` if no context was
@@ -441,6 +458,7 @@ export const SendEventOptionsSchema = z.object({
   /** This optional param will be used by Trigger.dev Connect, which
       is coming soon. */
   accountId: z.string().optional(),
+  queueId: z.string().optional(),
 });
 
 export const SendEventBodySchema = z.object({
