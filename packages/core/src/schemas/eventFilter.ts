@@ -103,6 +103,7 @@ type GenericEventMatcher<T> = NonNullable<T> extends string
   ? BooleanMatcher
   : EventMatcher;
 
+/** A filter for matching against data */
 export type EventFilter<TEvent extends any = any> = TEvent extends Record<string, any>
   ? {
       [K in keyof TEvent]?: TEvent[K] extends Record<string, any>
