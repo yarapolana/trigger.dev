@@ -11,7 +11,7 @@
   ],
   "api": {
     "playground": {
-      "mode": "hide"
+      "mode": "simple"
     },
     "maintainOrder": true
   },
