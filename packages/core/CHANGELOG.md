@@ -1,5 +1,11 @@
 # internal-platform
 
+## 3.0.0-beta.35
+
+### Patch Changes
+
+- ece6ca678: Fix issue when using SDK in non-node environments by scoping the stream import with node:
+
 ## 3.0.0-beta.34
 
 ### Patch Changes
