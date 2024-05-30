@@ -23,6 +23,17 @@ export default {
 };
 ```
 
+If you use Vite, edit your `vite.config.ts` file and add the `@trigger.dev/react` package to `noExternal` list of `ssr`:
+
+```js
+export default defineConfig({
+  // ... other config
+  ssr: {
+    noExternal: ["@trigger.dev/react"]
+  },
+};
+```
+
 ### `[ERROR] Node builtin "buffer"`
 
 When running the Remix app, you may see an error like this:
